@@ -3,7 +3,7 @@ module MatrixMarket
 export mmread
 
 """
-### mmread(filename, infoonly::Bool=false)
+### mmread(filename, infoonly::Bool=false, retcoord::Bool=false)
 
 Read the contents of the Matrix Market file 'filename' into a matrix,
 which will be either sparse or dense, depending on the Matrix Market format
@@ -13,8 +13,11 @@ array storage).
 If infoonly is true (default: false), only information on the size and
 structure is returned from reading the header. The actual data for the
 matrix elements are not parsed.
+
+If retcoord is true (default: false), the rows, column and value vectors
+are returned, if it is a sparse matrix, along with the header information.
 """
-function mmread(filename, infoonly::Bool=false)
+function mmread(filename, infoonly::Bool=false, retcoord::Bool=false)
     mmfile = open(filename,"r")
     # Read first line
     firstline = chomp(readline(mmfile))
@@ -46,8 +49,11 @@ function mmread(filename, infoonly::Bool=false)
     while length(chomp(ll))==0 || (length(ll) > 0 && ll[1] == '%')
         ll = readline(mmfile)
     end
+
+    xparseint(x) = parse(Int, x)
+
     # Read matrix dimensions (and number of entries) from first non-comment line
-    dd = map(parseint, split(ll))
+    dd = map(xparseint, split(ll))
     if length(dd) < (rep == "coordinate" ? 3 : 2)
         throw(ParseError(string("Could not read in matrix dimensions from line: ", ll)))
     end
@@ -63,8 +69,8 @@ function mmread(filename, infoonly::Bool=false)
         xx = Array(eltype, entries)
         for i in 1:entries
             flds = split(readline(mmfile))
-            rr[i] = parseint(flds[1])
-            cc[i] = parsefloat(flds[2])
+            rr[i] = parse(Int, flds[1])
+            cc[i] = parse(Int, flds[2])
             if eltype == Complex128
                 xx[i] = Complex128(parsefloat(flds[3]), parsefloat(flds[4]))
             elseif eltype == Float64
@@ -73,6 +79,7 @@ function mmread(filename, infoonly::Bool=false)
                 xx[i] = true
             end
         end
+        retcoord && return (rr, cc, xx, rows, cols, entries, rep, field, symm)
         return symlabel(sparse(rr, cc, xx, rows, cols))
     end
     return symlabel(reshape([parsefloat(readline(mmfile)) for i in 1:entries], (rows,cols)))
