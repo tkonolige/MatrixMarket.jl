@@ -1,3 +1,4 @@
+__precompile__()
 module MatrixMarket
 
 export mmread, mmwrite
@@ -35,6 +36,7 @@ function mmread(filename, infoonly::Bool=false, retcoord::Bool=false)
 
     eltype = field == "real" ? Float64 :
              field == "complex" ? Complex128 :
+             field == "integer" ? Int64 :
              field == "pattern" ? Bool :
              throw(ParseError("Unsupported field $field (only real and complex are supported)"))
 
@@ -68,15 +70,25 @@ function mmread(filename, infoonly::Bool=false, retcoord::Bool=false)
         cc = Array(Int, entries)
         xx = Array(eltype, entries)
         for i in 1:entries
-            flds = split(readline(mmfile))
-            rr[i] = parse(Int, flds[1])
-            cc[i] = parse(Int, flds[2])
+            line = readline(mmfile)
+            num_splits = if eltype == Complex128
+                             3
+                         elseif eltype == Bool
+                             1
+                         else
+                             2
+                         end
+            splits = find_splits(line, num_splits)
+            rr[i] = parse(Int, line[1:splits[1]])
+            cc[i] = parse(Int, line[splits[1]:splits[2]])
             if eltype == Complex128
-                xx[i] = Complex128(parsefloat(flds[3]), parsefloat(flds[4]))
-            elseif eltype == Float64
-                xx[i] = parsefloat(flds[3])
-            else
+                real = parse(Float64, line[splits[2]:splits[3]])
+                imag = parse(Float64, line[splits[3]:length(line)])
+                xx[i] = Complex128(real, imag)
+            elseif eltype == Bool
                 xx[i] = true
+            else
+                xx[i] = parse(eltype, line[splits[2]:length(line)])
             end
         end
         retcoord && return (rr, cc, xx, rows, cols, entries, rep, field, symm)
@@ -85,38 +97,45 @@ function mmread(filename, infoonly::Bool=false, retcoord::Bool=false)
     return symlabel(reshape([parsefloat(readline(mmfile)) for i in 1:entries], (rows,cols)))
 end
 
+function find_splits(s :: ASCIIString, num)
+    splits = Array(Int, num)
+    cur = 1
+    in_space = false
+    @inbounds for i in 1:length(s)
+        if s[i] == '\t' || s[i] == ' '
+            if !in_space
+                in_space = true
+                splits[cur] = i
+                cur += 1
+                if cur > num
+                    break;
+                end
+            end
+        else
+            in_space = false
+        end
+    end
+
+    splits
+end
+
 # Hack to represent skew-symmetric matrix as an ordinary matrix with duplicated elements
 function skewsymmetric!(M::AbstractMatrix)
     m,n = size(M)
     m == n || throw(DimensionMismatch())
-    for i=1:n, j=1:n
-        if M[i,j] != 0
-            M[j,i] = -M[i,j]
-        end
-    end
-    return M
+    return M - transpose(M)
 end
 
 function symmetric!(M::AbstractMatrix)
     m,n = size(M)
     m == n || throw(DimensionMismatch())
-    for i=1:n, j=1:n
-        if M[i,j] != 0
-            M[j,i] = M[i,j]
-        end
-    end
-    return M
+    return M + transpose(M)
 end
 
 function hermitian!(M::AbstractMatrix)
     m,n = size(M)
     m == n || throw(DimensionMismatch())
-    for i=1:n, j=1:n
-        if M[i,j] != 0
-            M[j,i] = conj(M[i,j])
-        end
-    end
-    return M
+    return M + conj(transpose(M))
 end
 
 """
